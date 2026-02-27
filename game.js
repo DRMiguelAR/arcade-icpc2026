@@ -33,6 +33,8 @@ let rStep = 0, rAccum = 0;
 const SEPARATOR = 612;
 const ZH = 186;              // 558 / 3
 const ZY = [0, 186, 372];   // top-y of each zone
+const SH = Math.floor(ZH / 4);          // slot height = 46px (4 slots per zone)
+let lastObstSlot = [-1, -1, -1];        // last obstacle slot used per zone index
 
 function zCY(z) { return ZY[z] + ZH / 2; }
 
@@ -95,9 +97,11 @@ function onStep() {
   if (happy()) {
     m.bounce = -12; f.bounce = -12;
     playTone(520, 0.07, 'sine');
-    // Both in same zone — stagger vertically so goodies don't stack
-    spawnGoodie(m.zone, 0.27);
-    spawnGoodie(f.zone, 0.65);
+    // Pick two different slots so the two goodies never overlap
+    const s1 = Math.floor(Math.random() * 4);
+    let s2; do { s2 = Math.floor(Math.random() * 4); } while (s2 === s1);
+    spawnGoodie(m.zone, s1);
+    spawnGoodie(f.zone, s2);
   } else {
     m.punch = 22; f.punch = 22;
     playTone(90, 0.11, 'sawtooth');
@@ -106,15 +110,19 @@ function onStep() {
   }
 }
 
-// Obstacle: height = ZH/3, width = 1x–3x height.
-// Starts with right edge flush at SEPARATOR, travels left.
+// Obstacle: height = SH (ZH/4), width = 1x–3x height.
+// 4 slots per zone; consecutive spawns never reuse the same slot.
+// Starts with right edge flush at SEPARATOR, travels left in 7 s.
 function spawnObstacle(zone) {
-  const h = Math.floor(ZH / 3);
+  const h = SH;
   const w = Math.floor(h * (1 + Math.random() * 2));
-  const slot = Math.floor(Math.random() * 3); // 0=top, 1=middle, 2=bottom
+  let slot;
+  do { slot = Math.floor(Math.random() * 4); }
+  while (slot === lastObstSlot[zone]);
+  lastObstSlot[zone] = slot;
   projectiles.push({
     x: SEPARATOR - w,
-    y: ZY[zone] + slot * h,
+    y: ZY[zone] + slot * SH,
     w, h,
     speed: SEPARATOR / 7000,
     isObstacle: true,
@@ -122,12 +130,15 @@ function spawnObstacle(zone) {
   });
 }
 
-function spawnGoodie(zone, yFrac) {
-  const h = Math.floor(ZH / 3);
-  const w = h; // square bounding box
+// Goodie: half the current size (ZH/6 ≈ 31 px), centered in its slot.
+// slot is chosen externally so two same-step goodies are always in different slots.
+function spawnGoodie(zone, slot) {
+  const h = Math.floor(ZH / 6);   // ≈ 31 px (half of old ZH/3 = 62)
+  const w = h;
+  const padding = Math.floor((SH - h) / 2); // center vertically within slot
   projectiles.push({
     x: SEPARATOR - w,
-    y: ZY[zone] + ZH * yFrac - h / 2,
+    y: ZY[zone] + slot * SH + padding,
     w, h,
     speed: SEPARATOR / 7000,
     isObstacle: false,
