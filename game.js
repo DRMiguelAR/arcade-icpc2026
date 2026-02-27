@@ -52,6 +52,8 @@ let projectiles = [];
 
 // ── Player (Moose + Sled) ────────────────────────────────────────────────────
 const MOVE_CD = 160, DMG_RATE = 0.4;
+const D_MIN = 45;   // moose touching sled (push boundary)
+const D_MAX = 110;  // rope fully taut (pull boundary)
 let mooseX = 132, sledX = 50;
 let mooseLane = 5, mooseCY = 0, mooseMCool = 0, mooseHCool = 0;
 let sledLane  = 5, sledCY  = 0;
@@ -119,11 +121,18 @@ function update(time, delta) {
       mooseX -= 25; mooseHCool = MOVE_CD;
     }
   }
-  sledX = mooseX - 82;
-
-  // Tether: sled can't be more than 2 lanes from moose
-  if (mooseLane - sledLane > 2) sledLane = mooseLane - 2;
-  else if (sledLane - mooseLane > 2) sledLane = mooseLane + 2;
+  // ── Tether physics (constraint-based) ──────────────────────────────────────
+  const ropeDx = mooseX - sledX;
+  if (ropeDx < D_MIN) {
+    // Pushing: moose backed into sled — push sled left
+    sledX = mooseX - D_MIN;
+    if (mooseLane !== sledLane) sledLane = mooseLane;
+  } else if (ropeDx > D_MAX) {
+    // Pulling: rope fully taut — drag sled right
+    sledX = mooseX - D_MAX;
+    if (mooseLane !== sledLane) sledLane = mooseLane;
+  }
+  // D_MIN ≤ ropeDx ≤ D_MAX: slack zone — sled keeps its own position freely
 
   // Smooth visual lerp
   mooseCY += (laneCY(mooseLane) - mooseCY) * 0.15;
@@ -269,21 +278,39 @@ function checkCollisions(delta) {
 }
 
 function drawRope() {
+  const rdx = mooseX - sledX;
+  if (rdx <= D_MIN) return; // moose touching sled — rope hidden/collapsed
+
   const x1 = sledX + 33, y1 = sledCY;
   const x2 = mooseX - 28, y2 = mooseCY;
-  const tense = Math.abs(mooseLane - sledLane) >= 2;
-  gfx.lineStyle(2, tense ? 0xff8800 : 0x885522, 1);
-  gfx.beginPath();
-  gfx.moveTo(x1, y1);
-  if (tense) {
+
+  if (rdx >= D_MAX) {
+    // Tense: straight taut line, dark colour
+    gfx.lineStyle(2, 0x554433, 1);
+    gfx.beginPath();
+    gfx.moveTo(x1, y1);
     gfx.lineTo(x2, y2);
+    gfx.strokePath();
   } else {
-    for (let t = 1; t <= 8; t++) {
-      const f = t / 8;
-      gfx.lineTo(x1 + (x2 - x1) * f, y1 + (y2 - y1) * f + 9 * Math.sin(f * Math.PI));
+    // Slack: quadratic-bezier sag (lighter brown)
+    const t = (rdx - D_MIN) / (D_MAX - D_MIN); // 0 = most slack, 1 = taut
+    const sag = (1 - t) * 20;
+    // Control point below the chord midpoint
+    const cpx = (x1 + x2) * 0.5;
+    const cpy = Math.max(y1, y2) + sag;
+    gfx.lineStyle(2, 0x885522, 1);
+    gfx.beginPath();
+    gfx.moveTo(x1, y1);
+    for (let i = 1; i <= 8; i++) {
+      const f = i / 8;
+      // Quadratic bezier: (1-f)²·P0 + 2(1-f)f·CP + f²·P2
+      gfx.lineTo(
+        (1-f)*(1-f)*x1 + 2*(1-f)*f*cpx + f*f*x2,
+        (1-f)*(1-f)*y1 + 2*(1-f)*f*cpy + f*f*y2
+      );
     }
+    gfx.strokePath();
   }
-  gfx.strokePath();
 }
 
 function spawnHeartBreak(sx, sy) {
