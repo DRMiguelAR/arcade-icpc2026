@@ -198,9 +198,9 @@ function update(time, delta) {
     damageTimer = 200;
     if (heartCooldown <= 0) {
       heartCooldown = 550;
-      life = Math.max(0, life - 4);
+      life = Math.max(0, life - 1);
       spawnHeartBreak(sledX, sledCY);
-      spawnFloatText(sledX + 20, sledCY - 45, '-4\u2665', '#ff2200');
+      spawnFloatText(sledX + 20, sledCY - 45, '-1\u2665', '#ff2200');
       if (life <= 0 && !gameOver) enterGameOver();
     }
     if (sledX <= 5 && !gameOver) { life = 0; enterGameOver(); }
@@ -252,7 +252,7 @@ function onStep() {
     return; // no projectile on jump beat
   }
 
-  if (rStep === 1 || rStep === 3) spawnWall();
+  if (rStep === 1) spawnWall();
 
   if (happy()) {
     m.bounce = -12; f.bounce = -12;
