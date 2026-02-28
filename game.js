@@ -52,11 +52,11 @@ let projectiles = [];
 
 // ── Player (Moose + Sled) ────────────────────────────────────────────────────
 const MOVE_CD = 160, DMG_RATE = 0.4;
-const D_MIN = 45;   // moose touching sled (push boundary)
-const D_MAX = 110;  // rope fully taut (pull boundary)
+const D_MIN = 45;          // collision radius (push boundary)
+const D_MAX = 2 * SH;      // max rope length = 2 lane slots ≈ 92 px
 let mooseX = 132, sledX = 50;
 let mooseLane = 5, mooseCY = 0, mooseMCool = 0, mooseHCool = 0;
-let sledLane  = 5, sledCY  = 0;
+let sledCY = 0;
 let life = 3, score = 0;
 let celebTimer = 0, damageTimer = 0, dmgShake = 0;
 let gameOver = false;
@@ -73,7 +73,7 @@ function create() {
   this.input.keyboard.on('keydown', e => { keys[KEYBOARD_TO_ARCADE[e.key] || e.key] = true; });
   this.input.keyboard.on('keyup',   e => { keys[KEYBOARD_TO_ARCADE[e.key] || e.key] = false; });
   mooseCY = laneCY(mooseLane);
-  sledCY  = laneCY(sledLane);
+  sledCY  = mooseCY;   // start co-located with moose
   lifeText  = this.add.text(8,   4, 'LIFE: 3',  { fontSize: '15px', color: '#ff4444', fontFamily: 'monospace' });
   scoreText = this.add.text(280, 4, 'SCORE: 0', { fontSize: '15px', color: '#ffff44', fontFamily: 'monospace' });
 }
@@ -115,28 +115,36 @@ function update(time, delta) {
   // Moose horizontal input (ArrowLeft/Right or A/D)
   mooseHCool -= delta;
   if (mooseHCool <= 0) {
-    if ((keys['P2R'] || keys['P1R']) && mooseX < 275) {
+    if ((keys['P2R'] || keys['P1R']) && mooseX < SEPARATOR - 50) {
       mooseX += 25; mooseHCool = MOVE_CD;
-    } else if ((keys['P2L'] || keys['P1L']) && mooseX > 120) {
+    } else if ((keys['P2L'] || keys['P1L']) && mooseX > 15) {
       mooseX -= 25; mooseHCool = MOVE_CD;
     }
   }
-  // ── Tether physics (constraint-based) ──────────────────────────────────────
-  const ropeDx = mooseX - sledX;
-  if (ropeDx < D_MIN) {
-    // Pushing: moose backed into sled — push sled left
-    sledX = mooseX - D_MIN;
-    if (mooseLane !== sledLane) sledLane = mooseLane;
-  } else if (ropeDx > D_MAX) {
-    // Pulling: rope fully taut — drag sled right
-    sledX = mooseX - D_MAX;
-    if (mooseLane !== sledLane) sledLane = mooseLane;
-  }
-  // D_MIN ≤ ropeDx ≤ D_MAX: slack zone — sled keeps its own position freely
-
-  // Smooth visual lerp
+  // ── 2D Tether physics ───────────────────────────────────────────────────────
   mooseCY += (laneCY(mooseLane) - mooseCY) * 0.15;
-  sledCY  += (laneCY(sledLane)  - sledCY)  * 0.12;
+  {
+    const rdx = mooseX - sledX;
+    const rdy = mooseCY - sledCY;
+    const dist = Math.sqrt(rdx * rdx + rdy * rdy);
+    if (dist > 0.5) {
+      if (dist > D_MAX) {
+        // Rope taut — drag sled toward moose
+        const pull = (dist - D_MAX) / dist;
+        sledX  += rdx * pull;
+        sledCY += rdy * pull;
+      } else if (dist < D_MIN) {
+        // Collision — push sled away from moose (in moose's travel direction)
+        const push = (D_MIN - dist) / dist;
+        sledX  -= rdx * push;
+        sledCY -= rdy * push;
+      }
+    }
+    // D_MIN ≤ dist ≤ D_MAX: slack zone — sled keeps position freely
+  }
+  // Clamp sled inside play zone
+  sledX  = Math.max(5, Math.min(SEPARATOR - 80, sledX));
+  sledCY = Math.max(23, Math.min(535, sledCY));
 
   // Timers
   damageTimer -= delta; if (damageTimer < 0) damageTimer = 0;
@@ -279,31 +287,33 @@ function checkCollisions(delta) {
 
 function drawRope() {
   const rdx = mooseX - sledX;
-  if (rdx <= D_MIN) return; // moose touching sled — rope hidden/collapsed
+  const rdy = mooseCY - sledCY;
+  const dist = Math.sqrt(rdx * rdx + rdy * rdy);
+  if (dist <= D_MIN) return; // collapsed — they're touching
 
-  const x1 = sledX + 33, y1 = sledCY;
-  const x2 = mooseX - 28, y2 = mooseCY;
+  // Attachment points on the near side of each character
+  const side = rdx >= 0 ? 1 : -1;
+  const x1 = sledX  + side * 33, y1 = sledCY;
+  const x2 = mooseX - side * 28, y2 = mooseCY;
 
-  if (rdx >= D_MAX) {
-    // Tense: straight taut line, dark colour
+  if (dist >= D_MAX) {
+    // Tense: straight dark line
     gfx.lineStyle(2, 0x554433, 1);
     gfx.beginPath();
     gfx.moveTo(x1, y1);
     gfx.lineTo(x2, y2);
     gfx.strokePath();
   } else {
-    // Slack: quadratic-bezier sag (lighter brown)
-    const t = (rdx - D_MIN) / (D_MAX - D_MIN); // 0 = most slack, 1 = taut
+    // Slack: quadratic-bezier, control point pulled down by gravity
+    const t = (dist - D_MIN) / (D_MAX - D_MIN); // 0=most slack, 1=taut
     const sag = (1 - t) * 20;
-    // Control point below the chord midpoint
     const cpx = (x1 + x2) * 0.5;
-    const cpy = Math.max(y1, y2) + sag;
+    const cpy = (y1 + y2) * 0.5 + sag;
     gfx.lineStyle(2, 0x885522, 1);
     gfx.beginPath();
     gfx.moveTo(x1, y1);
     for (let i = 1; i <= 8; i++) {
       const f = i / 8;
-      // Quadratic bezier: (1-f)²·P0 + 2(1-f)f·CP + f²·P2
       gfx.lineTo(
         (1-f)*(1-f)*x1 + 2*(1-f)*f*cpx + f*f*x2,
         (1-f)*(1-f)*y1 + 2*(1-f)*f*cpy + f*f*y2
