@@ -51,7 +51,7 @@ function happy() { return m.zone === f.zone; }
 let projectiles = [];
 
 // ── Player (Moose + Sled) ────────────────────────────────────────────────────
-const MOVE_CD = 160, DMG_RATE = 0.4;
+const MOVE_CD = 160;
 const D_MIN = 45;          // collision radius (push boundary)
 const D_MAX = 2 * SH;      // max rope length = 2 lane slots ≈ 92 px
 let mooseX = 132, sledX = 50;
@@ -68,7 +68,7 @@ let initials = ['A', 'A', 'A'];
 let initPos = 0, namingCool = 0;
 let uiObjects = [], letterTexts = [];
 let playerRank = -1;
-let dmgAccum = 0;
+let speedMult = 1, speedTimer = 0;
 
 function laneCY(lane) {
   return ZY[Math.floor(lane / 4)] + (lane % 4) * SH + SH / 2;
@@ -85,17 +85,17 @@ function create() {
   projectiles = [];
   mooseX = 132; sledX = 50; mooseLane = 5; mooseMCool = 0; mooseHCool = 0;
   mooseCY = laneCY(5); sledCY = mooseCY;
-  life = 3; score = 0;
+  life = 10; score = 0;
   celebTimer = 0; damageTimer = 0; dmgShake = 0;
   gameOver = false; gameState = 'playing';
   heartParticles = []; heartCooldown = 0;
   floatTexts = []; uiObjects = []; letterTexts = [];
   initials = ['A', 'A', 'A']; initPos = 0; namingCool = 0;
-  playerRank = -1; dmgAccum = 0;
+  playerRank = -1; speedMult = 1; speedTimer = 0;
   gfx = this.add.graphics();
   this.input.keyboard.on('keydown', e => { keys[KEYBOARD_TO_ARCADE[e.key] || e.key] = true; });
   this.input.keyboard.on('keyup',   e => { keys[KEYBOARD_TO_ARCADE[e.key] || e.key] = false; });
-  lifeText  = this.add.text(8,   4, 'LIFE: 3',  { fontSize: '15px', color: '#ff4444', fontFamily: 'monospace' });
+  lifeText  = this.add.text(8,   4, 'LIFE: 10', { fontSize: '15px', color: '#ff4444', fontFamily: 'monospace' });
   scoreText = this.add.text(280, 4, 'SCORE: 0', { fontSize: '15px', color: '#ffff44', fontFamily: 'monospace' });
 }
 
@@ -103,11 +103,15 @@ function update(time, delta) {
   updateFloatTexts(delta);
   if (gameState !== 'playing') {
     gfx.clear();
-    drawZones();
-    drawSeparator();
-    drawRhythmBar();
-    if (gameState === 'naming') updateNaming(delta);
-    else if (gameState === 'scores') updateScoresInput(delta);
+    if (gameState === 'scores') {
+      drawScoresBg();
+      updateScoresInput(delta);
+    } else {
+      drawZones();
+      drawSeparator();
+      drawRhythmBar();
+      if (gameState === 'naming') updateNaming(delta);
+    }
     return;
   }
 
@@ -118,8 +122,12 @@ function update(time, delta) {
     onStep();
   }
 
+  // Speed difficulty: +10% every 15 s
+  speedTimer += delta;
+  if (speedTimer >= 15000) { speedTimer -= 15000; speedMult *= 1.1; }
+
   // Move projectiles left; remove when fully off left edge
-  projectiles = projectiles.filter(p => { p.x -= p.speed * delta; return p.x + p.w > 0; });
+  projectiles = projectiles.filter(p => { p.x -= p.speed * speedMult * delta; return p.x + p.w > 0; });
 
   m.cy += (m.targetCY - m.cy) * 0.1;
   f.cy += (f.targetCY - f.cy) * 0.1;
@@ -187,7 +195,7 @@ function update(time, delta) {
   checkCollisions(delta);
 
   // HUD
-  lifeText.setText('LIFE: ' + Math.max(0, Math.ceil(life)));
+  lifeText.setText('LIFE: ' + life);
   scoreText.setText('SCORE: ' + score);
 
   gfx.clear();
@@ -278,24 +286,17 @@ function checkCollisions(delta) {
     const p = projectiles[i];
     if (p.x + p.w < sx || p.x > sx + sw || p.y + p.h < sy || p.y > sy + sh) continue;
     if (p.isObstacle) {
-      const dmg = DMG_RATE * delta / 1000;
-      life -= dmg;
-      dmgAccum += dmg;
-      if (life <= 0) {
-        life = 0;
-        if (!gameOver) enterGameOver();
-      }
       damageTimer = 200;
       if (heartCooldown <= 0) {
         heartCooldown = 550;
+        life = Math.max(0, life - 4);
         spawnHeartBreak(sledX, sledCY);
-        spawnFloatText(sledX + (Math.random() - 0.5) * 30, sledCY - 45,
-          '-' + dmgAccum.toFixed(1) + '\u2665', '#ff4444');
-        dmgAccum = 0;
+        spawnFloatText(sledX + (Math.random() - 0.5) * 30, sledCY - 45, '-4\u2665', '#ff4444');
+        if (life <= 0 && !gameOver) enterGameOver();
       }
     } else {
       let txt;
-      if (p.subtype === 2) { life = Math.min(5, life + 1); txt = '+1\u2665'; }
+      if (p.subtype === 2) { life = Math.min(99, life + 10); txt = '+10\u2665'; }
       else { score += 10; txt = '+10'; }
       spawnFloatText(p.x + p.w / 2, p.y + p.h / 2, txt,
         p.subtype === 2 ? '#ff88aa' : '#ffff44');
@@ -694,9 +695,9 @@ function drawHeart(x, y, w, h) {
 
 // Front-facing DK-style gorilla.
 // When angry, left arm punches toward the LEFT (into the play zone).
-function drawChar(ch, cx, isFemale) {
+function drawChar(ch, cx, isFemale, forceHappy) {
   const y = ch.cy + ch.bounce;
-  const h = happy();
+  const h = forceHappy !== undefined ? forceHappy : happy();
   const B = 0x7b3f00, S = 0xf4a460, D = 0x3d1f00;
 
   // Shadow
@@ -787,6 +788,44 @@ function drawChar(ch, cx, isFemale) {
     gfx.fillStyle(0xff1493);
     gfx.fillCircle(cx, y - 67, 6);
   }
+}
+
+// ─── Scores screen background ────────────────────────────────────────────────
+
+function drawScoresBg() {
+  const t = Date.now();
+  // Black background
+  gfx.fillStyle(0x000000, 1);
+  gfx.fillRect(0, 0, 800, 600);
+  // Stars
+  gfx.fillStyle(0xffffff, 0.5);
+  for (let i = 0; i < 30; i++) {
+    const sx = (i * 97 + 43) % 800;
+    const sy = (i * 53 + 17) % 480;
+    const blink = Math.sin(t * 0.002 + i) * 0.4 + 0.6;
+    gfx.fillStyle(0xffffff, blink * 0.6);
+    gfx.fillRect(sx, sy, 2, 2);
+  }
+  // Happy female gorilla — left side, bouncing arms
+  const hBounce = Math.sin(t * 0.004) * 7;
+  drawChar({ cy: 235 + hBounce, punch: 0, bounce: 0 }, 65, true, true);
+  // Angry male gorilla — right side, punching toward center
+  const aPunch = Math.abs(Math.sin(t * 0.003)) * 24;
+  drawChar({ cy: 235, punch: aPunch, bounce: 0 }, 735, false, false);
+  // Moose + sled celebrating — bottom center
+  const cSledX = 340, cMooseX = 430, cY = 543;
+  // Rope (simple slack bezier)
+  gfx.lineStyle(2, 0x885522, 1);
+  gfx.beginPath(); gfx.moveTo(cSledX + 33, cY);
+  const cpx = (cSledX + 33 + cMooseX - 28) / 2;
+  for (let i = 1; i <= 8; i++) {
+    const fv = i / 8;
+    gfx.lineTo((1-fv)*(1-fv)*(cSledX+33) + 2*(1-fv)*fv*cpx + fv*fv*(cMooseX-28),
+               (1-fv)*(1-fv)*cY + 2*(1-fv)*fv*(cY+14) + fv*fv*cY);
+  }
+  gfx.strokePath();
+  drawSled(cSledX, cY, true, 0);
+  drawMoose(cMooseX, cY);
 }
 
 // ─── Rhythm bar ─────────────────────────────────────────────────────────────
@@ -961,18 +1000,17 @@ function showScoresScreen(scores) {
     uiObjects.push(o);
     return o;
   };
-  mk(300, 22, 'TOP 10 SCORES', 24, '#ffdd00');
-  mk(300, 52, 'SCORE FINAL: ' + score, 16, '#aaaaaa');
+  mk(400, 20, 'TOP 10 SCORES', 26, '#ffdd00');
+  mk(400, 52, 'SCORE FINAL: ' + score, 16, '#aaaaaa');
   const list = scores.slice(0, 10);
   for (let i = 0; i < list.length; i++) {
     const s = list[i];
     const hi = i === playerRank;
-    const rank = (i + 1) + '.';
-    mk(300, 84 + i * 44, rank + '  ' + s.name + '   ' + s.score, 18,
+    mk(400, 80 + i * 38, (i + 1) + '.  ' + s.name + '   ' + s.score, 18,
       hi ? '#ffff44' : '#cccccc');
   }
-  if (list.length === 0) mk(300, 120, '(sin registros aun)', 16, '#666666');
-  mk(300, 546, '[ Enter / 1 ]   REINICIAR', 17, '#55ff55');
+  if (list.length === 0) mk(400, 200, '(sin registros aun)', 16, '#666666');
+  mk(400, 458, '[ Enter / 1 ]   REINICIAR', 17, '#55ff55');
 }
 
 function updateScoresInput(delta) {
