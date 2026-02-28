@@ -70,6 +70,7 @@ let uiObjects = [], letterTexts = [];
 let playerRank = -1;
 let speedMult = 1, speedTimer = 0;
 let titleSledX = -150, skipTitle = false;
+let introBeat = 0;
 
 function laneCY(lane) {
   return ZY[Math.floor(lane / 4)] + (lane % 4) * SH + SH / 2;
@@ -80,8 +81,8 @@ function create() {
   keys = {};
   rStep = 0; rAccum = 0;
   lastObstSlot = [-1, -1, -1];
-  m = { zone: 0, cy: zCY(0), targetCY: zCY(0), punch: 0, bounce: 0 };
-  f = { zone: 2, cy: zCY(2), targetCY: zCY(2), punch: 0, bounce: 0 };
+  m = { zone: 1, cy: zCY(1), targetCY: zCY(1), punch: 0, bounce: 0 };
+  f = { zone: 1, cy: zCY(1), targetCY: zCY(1), punch: 0, bounce: 0 };
   projectiles = [];
   mooseX = 132; sledX = 50; mooseLane = 5; mooseMCool = 0; mooseHCool = 0;
   mooseCY = laneCY(5); sledCY = mooseCY;
@@ -91,7 +92,7 @@ function create() {
   heartParticles = []; heartCooldown = 0;
   floatTexts = []; uiObjects = []; letterTexts = [];
   initials = ['A', 'A', 'A']; initPos = 0; namingCool = 0;
-  playerRank = -1; speedMult = 1; speedTimer = 0; titleSledX = -150;
+  playerRank = -1; speedMult = 1; speedTimer = 0; titleSledX = -150; introBeat = 0;
   gfx = this.add.graphics();
   this.input.keyboard.on('keydown', e => { keys[KEYBOARD_TO_ARCADE[e.key] || e.key] = true; });
   this.input.keyboard.on('keyup',   e => { keys[KEYBOARD_TO_ARCADE[e.key] || e.key] = false; });
@@ -243,15 +244,38 @@ function update(time, delta) {
 }
 
 function onStep() {
+  // ── Intro phase: first 2 full cycles ──────────────────────────────────────
+  if (introBeat < 8) {
+    introBeat++;
+    if (rStep === 0) {
+      // Keep both yetis dancing in center zone
+      m.zone = 1; f.zone = 1;
+      m.targetCY = zCY(1); f.targetCY = zCY(1);
+      m.bounce = -32; f.bounce = -32;
+      playTone(180, 0.09, 'sine');
+    } else {
+      // Goodies in all 3 zones, random non-repeating slots
+      m.bounce = -12; f.bounce = -12;
+      playTone(520, 0.07, 'sine');
+      const used = new Set();
+      for (let z = 0; z < 3; z++) {
+        let s; do { s = Math.floor(Math.random() * 4); } while (used.has(s));
+        used.add(s);
+        spawnGoodie(z, s);
+      }
+    }
+    return;
+  }
+
+  // ── Normal play ────────────────────────────────────────────────────────────
   if (rStep === 0) {
-    // New cycle: change zones, jump
     m.zone = Math.floor(Math.random() * 3);
     f.zone = Math.floor(Math.random() * 3);
     m.targetCY = zCY(m.zone);
     f.targetCY = zCY(f.zone);
     m.bounce = -32; f.bounce = -32;
     playTone(180, 0.09, 'sine');
-    return; // no projectile on jump beat
+    return;
   }
 
   if (rStep === 1) spawnWall();
@@ -804,16 +828,18 @@ function drawChar(ch, cx, isFemale, forceHappy) {
     gfx.fillCircle(cx - 38, y - 44, 10);
     gfx.fillCircle(cx + 38, y - 44, 10);
   } else {
-    // Left arm punches LEFT into play zone
-    const ext = 22 + ch.punch;
-    gfx.fillRect(cx - 28 - ext, y - 7, ext + 10, 15);
+    // Both arms slam DOWN toward the ground
+    const ext = Math.min(ch.punch, 22);
+    // Left arm
+    gfx.fillRect(cx - 48, y - 6, 20, 20 + ext);
     gfx.fillStyle(S);
-    gfx.fillCircle(cx - 24 - ext, y + 1, 11); // fist
+    gfx.fillCircle(cx - 38, y + 17 + ext, 12); // left fist
     gfx.fillStyle(B);
-    // Right arm raised in anger
-    gfx.fillRect(cx + 26, y - 28, 14, 28);
+    // Right arm
+    gfx.fillRect(cx + 28, y - 6, 20, 20 + ext);
     gfx.fillStyle(S);
-    gfx.fillCircle(cx + 33, y - 30, 9);
+    gfx.fillCircle(cx + 38, y + 17 + ext, 12); // right fist
+    gfx.fillStyle(B);
   }
 
   // Head
